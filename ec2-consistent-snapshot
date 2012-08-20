@@ -29,7 +29,7 @@ my $aws_secret_access_key_file = $ENV{AWS_SECRET_ACCESS_KEY} || $ENV{AMAZON_SECR
 my $aws_credentials_file       = $ENV{AWS_CREDENTIALS} || $ENV{AMAZON_CREDENTIALS};
 my $region                     = undef;
 my $ec2_endpoint               = undef;
-my $description                = $Prog;
+my $descriptions               = ();
 my $xfs_filesystem             = undef;
 my $mongo                      = 0;
 my $mongo_username             = undef;
@@ -66,7 +66,7 @@ GetOptions(
   'aws-credentials-file=s'       => \$aws_credentials_file,
   'region=s'                     => \$region,
   'ec2-endpoint=s'               => \$ec2_endpoint,
-  'description=s'                => \$description,
+  'description=s'                => \@descriptions,
   'xfs-filesystem=s'             => \$xfs_filesystem,
   'mongo'                        => \$mongo,
   'mongo-username=s'             => \$mongo_username,
@@ -109,6 +109,24 @@ die "$Prog: ERROR: Can't find AWS access key or secret access key"
   unless $aws_access_key_id and $aws_secret_access_key;
 $Debug and warn "$Prog: Using AWS access key: $aws_access_key_id\n";
 
+die "$Prog: ERROR: Descriptions count (", scalar (@descriptions),
+    ") does not match volumes count (", scalar (@volume_ids), ")"
+  if (scalar (@descriptions) > 1 &&
+      scalar (@descriptions) != scalar (@volume_ids) );
+
+if ( scalar (@descriptions) == 0 ) {
+  $Debug and warn "$Prog: Using default snapshot description\n";
+  $descriptions[0] = $Prog;
+}
+
+if ( scalar (@descriptions) == 1 ) {
+  $Debug and warn "$Prog: Using description '$descriptions[0]'"
+                . " for all snapshot descriptions\n";
+  for ( my $index = 1; $index < scalar (@volume_ids); ++$index ) {
+    $descriptions[$index] = $descriptions[0];
+  }
+}
+
 #
 # Mongo
 #
@@ -143,7 +161,7 @@ if ( $xfs_filesystem ) {
     $xfs_filesystem_frozen = 1;
 }
 
-ebs_snapshot(\@volume_ids, $ec2_endpoint, $description);
+ebs_snapshot(\@volume_ids, $ec2_endpoint, \@descriptions);
 
 exit 0;
 
@@ -180,7 +198,7 @@ END {
 #---- METHODS ----
 
 sub ebs_snapshot {
-  my ($volume_ids, $ec2_endpoint, $description) = @_;
+  my ($volume_ids, $ec2_endpoint, $descriptions) = @_;
 
   $Debug and warn "$Prog: ", scalar localtime, ": create EC2 object\n";
   $Debug and warn "$Prog: Endpoint: $ec2_endpoint\n" if $ec2_endpoint;
@@ -194,7 +212,12 @@ sub ebs_snapshot {
   );
 
  VOLUME:
-  for my $volume_id ( @$volume_ids ) {
+  for (my $index = 0; $index < scalar(@$volume_ids); ++$index ) {
+    my $volume_id = $$volume_ids[$index];
+    my $description = $$descriptions[$index];
+
+    $Debug and warn "$Prog: volume_id: $volume_id; description: $description\n";
+
     # Snapshot
     $Debug and
       warn "$Prog: ", scalar localtime, ": ec2-create-snapshot $volume_id\n";
